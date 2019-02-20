@@ -16,11 +16,11 @@
 #' plots using \code{\link[grDevices]{recordPlot}}, and we can make use of these
 #' hooks to insert graphics output in the output document; see
 #' \code{\link{hook_plot_custom}} for details.
-#' @param x the plot filename (a character string)
-#' @param options a list of the current chunk options
+#' @param x Filename for the plot (a character string).
+#' @param options A list of the current chunk options.
 #' @rdname hook_plot
-#' @return A character string (code with plot filenames wrapped)
-#' @references \url{http://yihui.name/knitr/hooks}
+#' @return A character string of code, with plot filenames wrapped.
+#' @references \url{https://yihui.name/knitr/hooks/}
 #' @seealso \code{\link{hook_plot_custom}}
 #' @export
 #' @examples # this is what happens for a chunk like this
@@ -69,6 +69,12 @@ hook_plot_tex = function(x, options) {
   fig.cur = options$fig.cur %n% 1L
   fig.num = options$fig.num %n% 1L
   animate = options$fig.show == 'animate'
+  fig.ncol = options$fig.ncol %n% fig.num
+  if (is.null(fig.sep <- options$fig.sep)) {
+    fig.sep = character(fig.num)
+    if (fig.ncol < fig.num) fig.sep[seq(fig.ncol, fig.num - 1L, fig.ncol)] = '\\newline'
+  }
+  sep.cur = NULL
 
   # If this is a non-tikz animation, skip to the last fig.
   if (!tikz && animate && fig.cur < fig.num) return('')
@@ -99,18 +105,18 @@ hook_plot_tex = function(x, options) {
 
   # Wrap in figure environment only if user specifies a caption
   if (length(cap) && !is.na(cap)) {
-    lab = paste(options$fig.lp, options$label, sep = '')
+    lab = paste0(options$fig.lp, options$label)
     # If pic is standalone/first in set: open figure environment
     if (plot1) {
       pos = options$fig.pos
-      if (pos != '') pos = sprintf('[%s]', pos)
+      if (pos != '' && !grepl('^[[{]', pos)) pos = sprintf('[%s]', pos)
       fig1 = sprintf('\\begin{%s}%s', options$fig.env, pos)
     }
     # Add subfloat code if needed
     if (usesub) {
-      sub1 = sprintf('\\subfloat[%s\\label{%s}]{',
-                     subcap, paste(lab, fig.cur, sep = ''))
+      sub1 = sprintf('\\subfloat[%s%s]{', subcap, create_label(lab, fig.cur, latex = TRUE))
       sub2 = '}'
+      sep.cur = fig.sep[fig.cur]; if (is.na(sep.cur)) sep.cur = NULL
     }
 
     # If pic is standalone/last in set:
@@ -118,11 +124,14 @@ hook_plot_tex = function(x, options) {
     # * close figure environment
     if (plot2) {
       if (is.null(scap) && !grepl('[{].*?[:.;].*?[}]', cap)) {
-        scap = strsplit(cap, '[$:.;]')[[1L]][1L]
+        scap = strsplit(cap, '[:.;]( |\\\\|$)')[[1L]][1L]
       }
       scap = if (is.null(scap) || is.na(scap)) '' else sprintf('[%s]', scap)
-      fig2 = sprintf('\\caption%s{%s}\\label{%s}\n\\end{%s}\n', scap, cap,
-                     paste(lab, if (mcap) fig.cur, sep = ''), options$fig.env)
+      cap = if (cap == '') '' else sprintf(
+        '\\caption%s{%s}%s\n', scap, cap,
+        create_label(lab, if (mcap) fig.cur, latex = TRUE)
+      )
+      fig2 = sprintf('%s\\end{%s}\n', cap, options$fig.env)
     }
   } else if (pandoc_to(c('latex', 'beamer'))) {
     # use alignment environments for R Markdown latex output (\centering won't work)
@@ -137,7 +146,7 @@ hook_plot_tex = function(x, options) {
                  sprintf('height=%s', options$out.height),
                  options$out.extra), collapse = ',')
 
-  paste(
+  paste0(
     fig1, align1, sub1, resize1,
     if (tikz) {
       sprintf('\\input{%s}', x)
@@ -151,21 +160,26 @@ hook_plot_tex = function(x, options) {
               sub(sprintf('%d$', fig.num), '', sans_ext(x)), 1L, fig.num)
     } else {
       if (nzchar(size)) size = sprintf('[%s]', size)
-      sprintf('\\includegraphics%s{%s} ', size, sans_ext(x))
+      res = sprintf(
+        '\\includegraphics%s{%s} ', size,
+        if (getOption('knitr.include_graphics.ext', FALSE)) x else sans_ext(x)
+      )
+      lnk = options$fig.link
+      if (is.null(lnk) || is.na(lnk)) res else sprintf('\\href{%s}{%s}', lnk, res)
     },
 
-    resize2, sub2, align2, fig2,
-    sep = ''
+    resize2, sub2, sep.cur, align2, fig2
   )
 }
 
 .chunk.hook.tex = function(x, options) {
   ai = output_asis(x, options)
-  col = if (!ai) paste(color_def(options$background),
-                       if (!is_tikz_dev(options)) '\\color{fgcolor}', sep = '')
-  k1 = paste(col, '\\begin{kframe}\n', sep = '')
+  col = if (!ai) paste0(
+    color_def(options$background), if (!is_tikz_dev(options)) '\\color{fgcolor}'
+  )
+  k1 = paste0(col, '\\begin{kframe}\n')
   k2 = '\\end{kframe}'
-  x = .rm.empty.envir(paste(k1, x, k2, sep = ''))
+  x = .rm.empty.envir(paste0(k1, x, k2))
   size = if (options$size == 'normalsize') '' else sprintf('\\%s', options$size)
   if (!ai) x = sprintf('\\begin{knitrout}%s\n%s\n\\end{knitrout}', size, x)
   if (options$split) {
@@ -187,7 +201,7 @@ hook_plot_tex = function(x, options) {
 .inline.hook.tex = function(x) {
   if (is.numeric(x)) {
     x = format_sci(x, 'latex')
-    i = grep('[^0-9.,]', x)
+    i = grep('[^-0-9.,]', x)
     x[i] = sprintf('\\ensuremath{%s}', x[i])
     if (getOption('OutDec') != '.') x = sprintf('\\text{%s}', x)
   }
@@ -232,7 +246,7 @@ hook_plot_tex = function(x, options) {
 #' @rdname output_hooks
 #' @return \code{NULL}; corresponding hooks are set as a side effect
 #' @export
-#' @references See output hooks in \url{http://yihui.name/knitr/hooks}.
+#' @references See output hooks in \url{https://yihui.name/knitr/hooks/}.
 #'
 #'   Jekyll and Liquid:
 #'   \url{https://github.com/jekyll/jekyll/wiki/Liquid-Extensions};
@@ -251,14 +265,14 @@ render_latex = function() {
         if (options$engine == 'R' || x[1] != '\\noindent') {
           paste(c('\\begin{alltt}', x, '\\end{alltt}', ''), collapse = '\n')
         } else {
-          if ((n <- length(x)) > 5) x[n - 3] = sub('\\\\\\\\$', '', x[n - 3])
+          if ((n <- length(x)) > 4) x[n - 2] = sub('\\\\\\\\$', '', x[n - 2])
           paste(c(x, ''), collapse = '\n')
         }
       } else .verb.hook(x)
     },
     output = function(x, options) {
       if (output_asis(x, options)) {
-        paste('\\end{kframe}', x, '\\begin{kframe}', sep = '')
+        paste0('\\end{kframe}', x, '\\begin{kframe}')
       } else .verb.hook(x)
     },
     warning = .color.block('\\color{warningcolor}{', '}'),
@@ -267,7 +281,7 @@ render_latex = function() {
     inline = .inline.hook.tex, chunk = .chunk.hook.tex,
     plot = function(x, options) {
       # escape plot environments from kframe
-      paste('\\end{kframe}', hook_plot_tex(x, options), '\n\\begin{kframe}', sep = '')
+      paste0('\\end{kframe}', hook_plot_tex(x, options), '\n\\begin{kframe}')
     }
   )
 }
@@ -282,10 +296,10 @@ render_sweave = function() {
   hook.i = function(x, options)
     paste(c('\\begin{Sinput}', hilight_source(x, 'sweave', options), '\\end{Sinput}', ''),
           collapse = '\n')
-  hook.s = function(x, options) paste('\\begin{Soutput}\n', x, '\\end{Soutput}\n', sep = '')
+  hook.s = function(x, options) paste0('\\begin{Soutput}\n', x, '\\end{Soutput}\n')
   hook.c = function(x, options) {
     if (output_asis(x, options)) return(x)
-    paste('\\begin{Schunk}\n', x, '\\end{Schunk}', sep = '')
+    paste0('\\begin{Schunk}\n', x, '\\end{Schunk}')
   }
   knit_hooks$set(source = hook.i, output = hook.s, warning = hook.s,
                  message = hook.s, error = hook.s, inline = .inline.hook.tex,
@@ -318,13 +332,13 @@ render_listings = function() {
 #' behavior, use a comment \code{\% knitr_do_not_move} in the floating
 #' environment.
 #' @rdname hook_document
-#' @param x a character string (the content of the whole document output)
+#' @param x A character string (the whole output document).
 #' @return The post-processed document as a character string.
 #' @note These functions are hackish. Also note \code{hook_movecode()} assumes
 #'   you to use the default output hooks for LaTeX (not Sweave or listings), and
 #'   every figure/table environment must have a label.
 #' @export
-#' @references \url{http://yihui.name/knitr/hooks}
+#' @references \url{https://yihui.name/knitr/hooks/}
 #' @examples \dontrun{knit_hooks$set(document = hook_movecode)}
 #' # see example 103 at https://github.com/yihui/knitr-examples
 hook_movecode = function(x) {

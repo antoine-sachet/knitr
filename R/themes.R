@@ -28,7 +28,6 @@ get_theme = function(theme = NULL) {
 #' file of a theme), and for the \code{set()} method, it can also be a list
 #' returned by the \code{get()} method. See examples below.
 #' @author Ramnath Vaidyanathan and Yihui Xie
-#' @seealso \code{\link{eclipse_theme}} (use Eclipse themes)
 #' @references For a preview of all themes, see
 #'   \url{https://gist.github.com/yihui/3422133}.
 #' @note The syntax highlighting here only applies to \file{.Rnw} (LaTeX) and
@@ -107,7 +106,7 @@ theme2list = function(theme.file) {
   eval(parse(text = y), envir = env)
   y = as.list(env)
   for (i in seq_along(y$Keywords)) {
-    y[[paste('Keyword', i, sep = '')]] = y$Keywords[[i]]
+    y[[paste0('Keyword', i)]] = y$Keywords[[i]]
   }
   y$Keywords = NULL
   y
